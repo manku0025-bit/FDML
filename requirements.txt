@@ -7,3 +7,4 @@ flask-mysqldb
 flask-mail
 gunicorn
 pymysql
+opencv-python-headless
