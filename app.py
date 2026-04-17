@@ -3,16 +3,19 @@ import pandas as pd
 import sqlite3
 import pickle
 import os
-import cv2
-import pytesseract
 import random
 import re
-import shutil
 import numpy as np
+import easyocr
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "fraud_ai_secret"
+
+# ===============================
+# EASY OCR (WORKS ON RENDER)
+# ===============================
+reader = easyocr.Reader(['en'], gpu=False)
 
 # ===============================
 # DATABASE
@@ -40,16 +43,6 @@ def init_db():
 
 init_db()
 
-# ===============================
-# TESSERACT (RENDER FIX)
-# ===============================
-tesseract_path = shutil.which("tesseract")
-
-if tesseract_path:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_path
-    print("✅ Tesseract found:", tesseract_path)
-else:
-    print("❌ Tesseract NOT found")
 
 # ===============================
 # LOAD MODELS
@@ -126,6 +119,7 @@ def login():
 # ===============================
 # REGISTER
 # ===============================
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     try:
@@ -168,7 +162,6 @@ def register():
         return render_template('register.html')
     except Exception as e:
         return f"Register Error: {e}"
-
 # ===============================
 # FORGOT PASSWORD
 # ===============================
@@ -240,7 +233,6 @@ def reset_password():
         return render_template("reset.html")
     except Exception as e:
         return f"Reset Error: {e}"
-
 # ===============================
 # DASHBOARD
 # ===============================
@@ -272,7 +264,7 @@ def dashboard():
 
                 results_list = []
 
-                for chunk in pd.read_csv(path, chunksize=5000):
+                for chunk in pd.read_csv(path, chunksize=10000):
                     chunk = chunk.reindex(columns=features, fill_value=0)
                     data = chunk.values
 
@@ -295,35 +287,41 @@ def dashboard():
 
             # ================= IMAGE =================
             elif image_file and image_file.filename:
-                path = os.path.join("uploads", image_file.filename)
-                image_file.save(path)
+            path = os.path.join("uploads", image_file.filename)
+            image_file.save(path)
 
-                img = cv2.imread(path)
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                gray = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)[1]
+            try:
+                # EasyOCR
+                result = reader.readtext(path, detail=0)
+                text = " ".join(result)
 
-                text = pytesseract.image_to_string(gray) if tesseract_path else "OCR not available"
+                if not text.strip():
+                text = "No text detected"
+
+            except Exception as e:
+                text = f"OCR Error: {e}"
 
                 prob = 0
-                if scam_model and vectorizer:
-                    prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
+            if scam_model and vectorizer and text:
+            prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
 
-                risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
+            risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
-                safe = medium = high = 0
-                if risk == "LOW":
-                    safe = 1
-                elif risk == "MEDIUM":
-                    medium = 1
-                else:
-                    high = 1
+            # ✅ GRAPH FIX (always works)
+            safe = medium = high = 0
+            if risk == "LOW":
+            safe = 1
+            elif risk == "MEDIUM":
+            medium = 1
+            else:
+            high = 1
 
-                results = [{
-                    "Type": "Image",
-                    "Text": text,
-                    "Risk": risk,
-                    "Score": round(prob * 100, 2)
-                }]
+            results = [{
+            "Type": "Image",
+            "Text": text,
+            "Risk": risk,
+            "Score": round(prob * 100, 2)
+            }]
 
             # ================= MESSAGE =================
             elif message:
@@ -333,7 +331,6 @@ def dashboard():
 
                 risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
-                safe = medium = high = 0
                 if risk == "LOW":
                     safe = 1
                 elif risk == "MEDIUM":
