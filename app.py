@@ -8,13 +8,14 @@ import pytesseract
 import random
 import re
 import shutil
+import numpy as np
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "fraud_ai_secret"
 
 # ===============================
-# DATABASE (FIXED FOR DEPLOYMENT)
+# DATABASE
 # ===============================
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 
@@ -23,7 +24,6 @@ def get_db():
     con.row_factory = sqlite3.Row
     return con
 
-# AUTO CREATE TABLE
 def init_db():
     db = get_db()
     db.execute("""
@@ -41,16 +41,14 @@ def init_db():
 init_db()
 
 # ===============================
-# TESSERACT AUTO-DETECT
+# TESSERACT
 # ===============================
 tesseract_path = shutil.which("tesseract")
 if tesseract_path:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
-else:
-    print("⚠️ Tesseract not installed.")
 
 # ===============================
-# LOAD FRAUD MODELS
+# LOAD MODELS
 # ===============================
 model_files = [
     "creditcard_model.pkl",
@@ -65,12 +63,10 @@ for f in model_files:
         try:
             model, features = pickle.load(open(f, "rb"))
             fraud_models.append((model, features))
-        except Exception as e:
-            print(f"Error loading {f}: {e}")
+        except:
+            pass
 
-# ===============================
-# LOAD SCAM MODEL
-# ===============================
+# SCAM MODEL
 try:
     scam_model, vectorizer = pickle.load(open("scam_model.pkl", "rb"))
 except:
@@ -78,12 +74,12 @@ except:
     vectorizer = None
 
 # ===============================
-# UPLOAD FOLDER
+# FOLDER
 # ===============================
 os.makedirs("uploads", exist_ok=True)
 
 # ===============================
-# AUTO MODEL DETECTION
+# MODEL DETECTION
 # ===============================
 def detect_best_model(df):
     best_model = None
@@ -204,9 +200,7 @@ def forgot_password():
 def verify_otp():
     try:
         if request.method == "POST":
-            user_otp = request.form.get("otp")
-
-            if user_otp == session.get("otp"):
+            if request.form.get("otp") == session.get("otp"):
                 return redirect(url_for("reset_password"))
             else:
                 flash("Invalid OTP")
@@ -260,69 +254,70 @@ def dashboard():
             image_file = request.files.get("image")
             message = request.form.get("message")
 
-            # CSV
+            # ================= CSV (FAST) =================
             if csv_file and csv_file.filename:
                 path = os.path.join("uploads", csv_file.filename)
                 csv_file.save(path)
 
-                df = pd.read_csv(path)
-                model, features = detect_best_model(df)
+                sample_df = pd.read_csv(path, nrows=200)
+                model, features = detect_best_model(sample_df)
 
                 if model is None:
                     flash("No suitable model")
                     return redirect(url_for("dashboard"))
 
-                df_input = df.reindex(columns=features, fill_value=0)
-                probs = model.predict_proba(df_input)
+                results_list = []
 
-                df_input["Fraud_Score"] = probs[:, 1]
-                df_input["Risk_Level"] = df_input["Fraud_Score"].apply(
-                    lambda x: "HIGH" if x > 0.59 else "MEDIUM" if x > 0.5 else "LOW"
-                )
+                for chunk in pd.read_csv(path, chunksize=5000):
+                    chunk = chunk.reindex(columns=features, fill_value=0)
+                    data = chunk.values
 
-                safe = len(df_input[df_input["Risk_Level"] == "LOW"])
-                medium = len(df_input[df_input["Risk_Level"] == "MEDIUM"])
-                high = len(df_input[df_input["Risk_Level"] == "HIGH"])
+                    probs = model.predict_proba(data)[:, 1]
 
-                results = df_input.head(10).to_dict(orient="records")
+                    risk = np.where(probs > 0.59, "HIGH",
+                            np.where(probs > 0.5, "MEDIUM", "LOW"))
+
+                    chunk["Fraud_Score"] = probs
+                    chunk["Risk_Level"] = risk
+
+                    safe += np.sum(risk == "LOW")
+                    medium += np.sum(risk == "MEDIUM")
+                    high += np.sum(risk == "HIGH")
+
+                    results_list.append(chunk.head(2))
+
+                df_input = pd.concat(results_list, ignore_index=True)
+                results = df_input.to_dict(orient="records")
                 session["last_results"] = results
 
-            # IMAGE OCR
+            # ================= IMAGE =================
             elif image_file and image_file.filename:
                 path = os.path.join("uploads", image_file.filename)
                 image_file.save(path)
 
-                try:
-                    img = cv2.imread(path)
-                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                img = cv2.imread(path)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-                    text = pytesseract.image_to_string(gray) if tesseract_path else "OCR not available"
+                text = pytesseract.image_to_string(gray) if tesseract_path else "OCR not available"
 
-                    prob = 0
-                    if scam_model and vectorizer:
-                        X = vectorizer.transform([text])
-                        prob = scam_model.predict_proba(X)[0][1]
+                prob = 0
+                if scam_model and vectorizer:
+                    prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
 
-                    risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
+                risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
-                    results = [{
-                        "Type": "Image",
-                        "Text": text,
-                        "Risk": risk,
-                        "Score": round(prob * 100, 2)
-                    }]
+                results = [{
+                    "Type": "Image",
+                    "Text": text,
+                    "Risk": risk,
+                    "Score": round(prob * 100, 2)
+                }]
 
-                    session["last_results"] = results
-
-                except Exception as e:
-                    flash("OCR Error")
-
-            # MESSAGE
+            # ================= MESSAGE =================
             elif message:
                 prob = 0
                 if scam_model and vectorizer:
-                    X = vectorizer.transform([message])
-                    prob = scam_model.predict_proba(X)[0][1]
+                    prob = scam_model.predict_proba(vectorizer.transform([message]))[0][1]
 
                 risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
@@ -350,4 +345,4 @@ def logout():
 # RUN
 # ===============================
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
