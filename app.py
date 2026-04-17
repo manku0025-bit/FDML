@@ -1,10 +1,8 @@
-from flask import Flask, render_template, request, redirect, session, flash, url_for, send_file
+from flask import Flask, render_template, request, redirect, session, flash, url_for
 import pandas as pd
 import sqlite3
 import pickle
 import os
-import cv2
-import pytesseract
 import random
 import re
 from werkzeug.security import generate_password_hash, check_password_hash
