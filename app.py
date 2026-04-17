@@ -14,16 +14,43 @@ app = Flask(__name__)
 app.secret_key = "fraud_ai_secret"
 
 # ===============================
-# 🔥 TESSERACT AUTO-DETECT
+# DATABASE (FIXED FOR DEPLOYMENT)
+# ===============================
+DB_PATH = os.environ.get("DB_PATH", "users.db")
+
+def get_db():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+# AUTO CREATE TABLE
+def init_db():
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fullname TEXT,
+            email TEXT UNIQUE,
+            mobile TEXT,
+            password TEXT
+        )
+    """)
+    db.commit()
+    db.close()
+
+init_db()
+
+# ===============================
+# TESSERACT AUTO-DETECT
 # ===============================
 tesseract_path = shutil.which("tesseract")
 if tesseract_path:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 else:
-    print("⚠️ Tesseract not installed. OCR will not work.")
+    print("⚠️ Tesseract not installed.")
 
 # ===============================
-# 🔥 LOAD FRAUD MODELS
+# LOAD FRAUD MODELS
 # ===============================
 model_files = [
     "creditcard_model.pkl",
@@ -37,32 +64,23 @@ for f in model_files:
     if os.path.exists(f):
         try:
             model, features = pickle.load(open(f, "rb"))
-            fraud_models.append((model, features, f))
+            fraud_models.append((model, features))
         except Exception as e:
             print(f"Error loading {f}: {e}")
 
 # ===============================
-# 🔥 LOAD SCAM MODEL
+# LOAD SCAM MODEL
 # ===============================
 try:
     scam_model, vectorizer = pickle.load(open("scam_model.pkl", "rb"))
 except:
     scam_model = None
     vectorizer = None
-    print("⚠️ scam_model.pkl missing")
 
 # ===============================
-# CREATE UPLOAD FOLDER
+# UPLOAD FOLDER
 # ===============================
 os.makedirs("uploads", exist_ok=True)
-
-# ===============================
-# DATABASE
-# ===============================
-def get_db():
-    con = sqlite3.connect("users.db")
-    con.row_factory = sqlite3.Row
-    return con
 
 # ===============================
 # AUTO MODEL DETECTION
@@ -72,7 +90,7 @@ def detect_best_model(df):
     best_features = None
     max_match = 0
 
-    for model, features, name in fraud_models:
+    for model, features in fraud_models:
         match = len(set(features).intersection(df.columns))
         if match > max_match:
             max_match = match
@@ -104,76 +122,7 @@ def login():
         return render_template("login.html")
     except Exception as e:
         return f"Login Error: {e}"
-# ===============================
-# RESET PASSWORD
-# ===============================
-@app.route("/reset", methods=["GET", "POST"])
-def reset_password():
-    try:
-        if request.method == "POST":
-            password = request.form.get("password")
-            confirm = request.form.get("confirm")
 
-            if password != confirm:
-                flash("Passwords do not match")
-                return render_template("reset.html")
-
-            email = session.get("reset_email")
-            hashed = generate_password_hash(password)
-
-            db = get_db()
-            db.execute("UPDATE users SET password=? WHERE email=?", (hashed, email))
-            db.commit()
-
-            flash("Password reset successful!")
-            return redirect(url_for("login"))
-
-        return render_template("reset.html")
-    except Exception as e:
-        return f"Reset Error: {e}"
-# ===============================
-# VERIFY OTP
-# ===============================
-@app.route("/verify_otp", methods=["GET", "POST"])
-def verify_otp():
-    try:
-        if request.method == "POST":
-            user_otp = request.form.get("otp")
-
-            if user_otp == session.get("otp"):
-                return redirect(url_for("reset_password"))
-            else:
-                flash("Invalid OTP")
-
-        return render_template("verify_otp.html")
-    except Exception as e:
-        return f"OTP Error: {e}"
-# ===============================
-# FORGOT PASSWORD
-# ===============================
-@app.route("/forgot", methods=["GET", "POST"])
-def forgot_password():
-    try:
-        if request.method == "POST":
-            email = request.form.get("email")
-
-            db = get_db()
-            user = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-
-            if user:
-                otp = str(random.randint(1000, 9999))
-                session["otp"] = otp
-                session["reset_email"] = email
-                print("OTP:", otp)  # For testing
-
-                flash("OTP sent (check console)")
-                return redirect(url_for("verify_otp"))
-            else:
-                flash("Email not found")
-
-        return render_template("forgot.html")
-    except Exception as e:
-        return f"Forgot Error: {e}"
 # ===============================
 # REGISTER
 # ===============================
@@ -221,6 +170,80 @@ def register():
         return f"Register Error: {e}"
 
 # ===============================
+# FORGOT PASSWORD
+# ===============================
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot_password():
+    try:
+        if request.method == "POST":
+            email = request.form.get("email")
+
+            db = get_db()
+            user = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+
+            if user:
+                otp = str(random.randint(1000, 9999))
+                session["otp"] = otp
+                session["reset_email"] = email
+
+                print("OTP:", otp)
+
+                flash("OTP sent (check console)")
+                return redirect(url_for("verify_otp"))
+            else:
+                flash("Email not found")
+
+        return render_template("forgot.html")
+    except Exception as e:
+        return f"Forgot Error: {e}"
+
+# ===============================
+# VERIFY OTP
+# ===============================
+@app.route("/verify_otp", methods=["GET", "POST"])
+def verify_otp():
+    try:
+        if request.method == "POST":
+            user_otp = request.form.get("otp")
+
+            if user_otp == session.get("otp"):
+                return redirect(url_for("reset_password"))
+            else:
+                flash("Invalid OTP")
+
+        return render_template("verify_otp.html")
+    except Exception as e:
+        return f"OTP Error: {e}"
+
+# ===============================
+# RESET PASSWORD
+# ===============================
+@app.route("/reset", methods=["GET", "POST"])
+def reset_password():
+    try:
+        if request.method == "POST":
+            password = request.form.get("password")
+            confirm = request.form.get("confirm")
+
+            if password != confirm:
+                flash("Passwords do not match")
+                return render_template("reset.html")
+
+            email = session.get("reset_email")
+            hashed = generate_password_hash(password)
+
+            db = get_db()
+            db.execute("UPDATE users SET password=? WHERE email=?", (hashed, email))
+            db.commit()
+
+            flash("Password reset successful!")
+            return redirect(url_for("login"))
+
+        return render_template("reset.html")
+    except Exception as e:
+        return f"Reset Error: {e}"
+
+# ===============================
 # DASHBOARD
 # ===============================
 @app.route("/dashboard", methods=["GET", "POST"])
@@ -237,9 +260,7 @@ def dashboard():
             image_file = request.files.get("image")
             message = request.form.get("message")
 
-            # =========================
             # CSV
-            # =========================
             if csv_file and csv_file.filename:
                 path = os.path.join("uploads", csv_file.filename)
                 csv_file.save(path)
@@ -266,34 +287,21 @@ def dashboard():
                 results = df_input.head(10).to_dict(orient="records")
                 session["last_results"] = results
 
-            # =========================
-            # IMAGE (OCR)
-            # =========================
+            # IMAGE OCR
             elif image_file and image_file.filename:
                 path = os.path.join("uploads", image_file.filename)
                 image_file.save(path)
 
                 try:
-                    import numpy as np
-
-                    file_bytes = np.frombuffer(image_file.read(), np.uint8)
-                    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
-                    if img is None:
-                        img = cv2.imread(path)
-
+                    img = cv2.imread(path)
                     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-                    if tesseract_path:
-                        text = pytesseract.image_to_string(gray)
-                    else:
-                        text = "OCR not available"
+                    text = pytesseract.image_to_string(gray) if tesseract_path else "OCR not available"
 
+                    prob = 0
                     if scam_model and vectorizer:
                         X = vectorizer.transform([text])
                         prob = scam_model.predict_proba(X)[0][1]
-                    else:
-                        prob = 0
 
                     risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
@@ -307,18 +315,14 @@ def dashboard():
                     session["last_results"] = results
 
                 except Exception as e:
-                    print("OCR Error:", e)
-                    flash("Error processing image")
+                    flash("OCR Error")
 
-            # =========================
             # MESSAGE
-            # =========================
             elif message:
+                prob = 0
                 if scam_model and vectorizer:
                     X = vectorizer.transform([message])
                     prob = scam_model.predict_proba(X)[0][1]
-                else:
-                    prob = 0
 
                 risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
@@ -329,15 +333,7 @@ def dashboard():
                     "Score": round(prob * 100, 2)
                 }]
 
-                session["last_results"] = results
-
-        return render_template(
-            "dashboard.html",
-            safe=safe,
-            medium=medium,
-            high=high,
-            results=results
-        )
+        return render_template("dashboard.html", safe=safe, medium=medium, high=high, results=results)
 
     except Exception as e:
         return f"Dashboard Error: {e}"
@@ -354,17 +350,4 @@ def logout():
 # RUN
 # ===============================
 if __name__ == "__main__":
-    db = get_db()
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS users(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fullname TEXT,
-            email TEXT UNIQUE,
-            mobile TEXT,
-            password TEXT
-        )
-    """)
-    db.commit()
-    db.close()
-
     app.run(debug=True)
