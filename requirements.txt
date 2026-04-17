@@ -2,9 +2,8 @@ flask
 pandas
 numpy
 scikit-learn
-joblib
-flask-mysqldb
-flask-mail
 gunicorn
-pymysql
 opencv-python-headless
+pytesseract
+Pillow
+joblib
