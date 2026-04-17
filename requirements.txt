@@ -6,3 +6,4 @@ joblib
 flask-mysqldb
 flask-mail
 gunicorn
+pymysql
