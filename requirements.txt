@@ -7,3 +7,5 @@ opencv-python-headless
 pytesseract
 Pillow
 joblib
+easyocr
+torch
