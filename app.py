@@ -5,6 +5,7 @@ import pickle
 import os
 import random
 import re
+import shutil
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -13,7 +14,12 @@ app.secret_key = "fraud_ai_secret"
 # ===============================
 # 🔥 TESSERACT PATH
 # ===============================
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
+tesseract_path = shutil.which("tesseract")
+
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
 # ===============================
 # 🔥 LOAD FRAUD MODELS
