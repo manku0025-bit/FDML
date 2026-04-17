@@ -41,11 +41,15 @@ def init_db():
 init_db()
 
 # ===============================
-# TESSERACT
+# TESSERACT (RENDER FIX)
 # ===============================
 tesseract_path = shutil.which("tesseract")
+
 if tesseract_path:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    print("✅ Tesseract found:", tesseract_path)
+else:
+    print("❌ Tesseract NOT found")
 
 # ===============================
 # LOAD MODELS
@@ -254,7 +258,7 @@ def dashboard():
             image_file = request.files.get("image")
             message = request.form.get("message")
 
-            # ================= CSV (FAST) =================
+            # ================= CSV =================
             if csv_file and csv_file.filename:
                 path = os.path.join("uploads", csv_file.filename)
                 csv_file.save(path)
@@ -288,7 +292,6 @@ def dashboard():
 
                 df_input = pd.concat(results_list, ignore_index=True)
                 results = df_input.to_dict(orient="records")
-                session["last_results"] = results
 
             # ================= IMAGE =================
             elif image_file and image_file.filename:
@@ -297,6 +300,7 @@ def dashboard():
 
                 img = cv2.imread(path)
                 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                gray = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)[1]
 
                 text = pytesseract.image_to_string(gray) if tesseract_path else "OCR not available"
 
@@ -305,6 +309,14 @@ def dashboard():
                     prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
 
                 risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
+
+                safe = medium = high = 0
+                if risk == "LOW":
+                    safe = 1
+                elif risk == "MEDIUM":
+                    medium = 1
+                else:
+                    high = 1
 
                 results = [{
                     "Type": "Image",
@@ -320,6 +332,14 @@ def dashboard():
                     prob = scam_model.predict_proba(vectorizer.transform([message]))[0][1]
 
                 risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
+
+                safe = medium = high = 0
+                if risk == "LOW":
+                    safe = 1
+                elif risk == "MEDIUM":
+                    medium = 1
+                else:
+                    high = 1
 
                 results = [{
                     "Type": "Message",
