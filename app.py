@@ -13,6 +13,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = "fraud_ai_secret"
 
+# FIX for Render (important)
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 # ================= DATABASE =================
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 
