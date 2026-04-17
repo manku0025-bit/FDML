@@ -286,42 +286,39 @@ def dashboard():
                 results = df_input.to_dict(orient="records")
 
             # ================= IMAGE =================
-            # ================= IMAGE =================
-elif image_file and image_file.filename:
-    path = os.path.join("uploads", image_file.filename)
-    image_file.save(path)
+            elif image_file and image_file.filename:
+                path = os.path.join("uploads", image_file.filename)
+                image_file.save(path)
 
-    try:
-        result = reader.readtext(path, detail=0)
-        text = " ".join(result)
+                try:
+                    result = reader.readtext(path, detail=0)
+                    text = " ".join(result)
 
-        if not text.strip():
-            text = "No text detected"
+                    if not text.strip():
+                        text = "No text detected"
 
-    except Exception as e:
-        text = f"OCR Error: {e}"
+                except Exception as e:
+                    text = f"OCR Error: {e}"
 
-    prob = 0
-    if scam_model and vectorizer and text:
-        prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
+                prob = 0
+                if scam_model and vectorizer and text:
+                    prob = scam_model.predict_proba(vectorizer.transform([text]))[0][1]
 
-    risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
+                risk = "HIGH" if prob > 0.59 else "MEDIUM" if prob > 0.5 else "LOW"
 
-    # GRAPH FIX
-    safe = medium = high = 0
-    if risk == "LOW":
-        safe = 1
-    elif risk == "MEDIUM":
-        medium = 1
-    else:
-        high = 1
+                if risk == "LOW":
+                    safe = 1
+                elif risk == "MEDIUM":
+                    medium = 1
+                else:
+                    high = 1
 
-    results = [{
-        "Type": "Image",
-        "Text": text,
-        "Risk": risk,
-        "Score": round(prob * 100, 2)
-    }]
+                results = [{
+                    "Type": "Image",
+                    "Text": text,
+                    "Risk": risk,
+                    "Score": round(prob * 100, 2)
+                }]
 
             # ================= MESSAGE =================
             elif message:
