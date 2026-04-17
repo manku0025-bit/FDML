@@ -104,7 +104,76 @@ def login():
         return render_template("login.html")
     except Exception as e:
         return f"Login Error: {e}"
+# ===============================
+# RESET PASSWORD
+# ===============================
+@app.route("/reset", methods=["GET", "POST"])
+def reset_password():
+    try:
+        if request.method == "POST":
+            password = request.form.get("password")
+            confirm = request.form.get("confirm")
 
+            if password != confirm:
+                flash("Passwords do not match")
+                return render_template("reset.html")
+
+            email = session.get("reset_email")
+            hashed = generate_password_hash(password)
+
+            db = get_db()
+            db.execute("UPDATE users SET password=? WHERE email=?", (hashed, email))
+            db.commit()
+
+            flash("Password reset successful!")
+            return redirect(url_for("login"))
+
+        return render_template("reset.html")
+    except Exception as e:
+        return f"Reset Error: {e}"
+# ===============================
+# VERIFY OTP
+# ===============================
+@app.route("/verify_otp", methods=["GET", "POST"])
+def verify_otp():
+    try:
+        if request.method == "POST":
+            user_otp = request.form.get("otp")
+
+            if user_otp == session.get("otp"):
+                return redirect(url_for("reset_password"))
+            else:
+                flash("Invalid OTP")
+
+        return render_template("verify_otp.html")
+    except Exception as e:
+        return f"OTP Error: {e}"
+# ===============================
+# FORGOT PASSWORD
+# ===============================
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot_password():
+    try:
+        if request.method == "POST":
+            email = request.form.get("email")
+
+            db = get_db()
+            user = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+
+            if user:
+                otp = str(random.randint(1000, 9999))
+                session["otp"] = otp
+                session["reset_email"] = email
+                print("OTP:", otp)  # For testing
+
+                flash("OTP sent (check console)")
+                return redirect(url_for("verify_otp"))
+            else:
+                flash("Email not found")
+
+        return render_template("forgot.html")
+    except Exception as e:
+        return f"Forgot Error: {e}"
 # ===============================
 # REGISTER
 # ===============================
