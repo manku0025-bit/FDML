@@ -3,6 +3,7 @@ services:
     name: fraud-app
     env: python
     buildCommand: |
-      apt-get update && apt-get install -y tesseract-ocr
       pip install -r requirements.txt
+      apt-get update
+      apt-get install -y tesseract-ocr
     startCommand: gunicorn app:app
